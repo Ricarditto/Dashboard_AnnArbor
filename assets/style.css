@@ -1,0 +1,77 @@
+/* En assets/style.css */
+
+/* Importar una fuente profesional */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+
+:root {
+    --bg-color: #1a1a2e; /* Fondo oscuro */
+    --card-color: #16213e; /* Color de las tarjetas */
+    --primary-text: #e94560; /* Color de acento para títulos */
+    --secondary-text: #dcdcdc; /* Color para texto normal */
+    --border-color: #0f3460;
+}
+
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--secondary-text);
+    margin: 0;
+}
+
+.dashboard-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.main-header {
+    padding: 10px 30px;
+    background-color: var(--card-color);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.main-header h1 {
+    color: var(--primary-text);
+    margin: 0;
+}
+
+.main-content {
+    display: flex;
+    flex: 1;
+    padding: 20px;
+    gap: 20px;
+}
+
+.metrics-sidebar {
+    width: 25%;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.metric-card {
+    background-color: var(--card-color);
+    border-radius: 8px;
+    padding: 15px;
+    border: 1px solid var(--border-color);
+    text-align: center;
+}
+
+.metric-card h2 {
+    color: var(--primary-text);
+    font-size: 1em;
+    margin: 0 0 5px 0;
+    text-transform: uppercase;
+}
+
+.metric-card p {
+    font-size: 2em;
+    font-weight: 700;
+    margin: 0;
+}
+
+.map-container {
+    width: 75%;
+    border-radius: 8px;
+    overflow: hidden; /* Para que el mapa no se salga de los bordes redondeados */
+}
