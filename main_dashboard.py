@@ -19,7 +19,7 @@ class DashboardApp:
             dcc.Store(id='trip-start-interval-store'),
             dcc.Interval(
                 id='interval-component',
-                interval=5000,  # <-- Intervalo de 5 segundos (5000ms)
+                interval=2000,  # <-- Intervalo de 5 segundos (5000ms)
                 n_intervals=0,
                 disabled=True
             ),
