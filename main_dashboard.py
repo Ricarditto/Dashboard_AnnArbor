@@ -16,6 +16,12 @@ class DashboardApp:
 
     def _create_layout(self):
         all_vehicles = self.data_handler.get_all_vehicles()
+
+        dcc.Interval(
+        id='interval-component',
+        interval=2500,  # <-- 1000ms = 1 segundo por punto
+        n_intervals=0
+        ),  
         
         default_vehicle_id = 455
         default_trip_options = []
