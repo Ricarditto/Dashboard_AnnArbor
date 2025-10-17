@@ -1,77 +1,197 @@
-/* En assets/style.css */
-
-/* Importar una fuente profesional */
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
-
-:root {
-    --bg-color: #1a1a2e; /* Fondo oscuro */
-    --card-color: #16213e; /* Color de las tarjetas */
-    --primary-text: #e94560; /* Color de acento para títulos */
-    --secondary-text: #dcdcdc; /* Color para texto normal */
-    --border-color: #0f3460;
-}
-
+/* General Body and Container Styles */
 body {
-    font-family: 'Roboto', sans-serif;
-    background-color: var(--bg-color);
-    color: var(--secondary-text);
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     margin: 0;
+    padding: 0;
+    background-color: #121212; /* Dark background */
+    color: #E0E0E0; /* Light text for contrast */
+    overflow-x: hidden; /* Prevent horizontal scroll */
 }
 
 .dashboard-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 100vh;
 }
 
+/* Header */
 .main-header {
-    padding: 10px 30px;
-    background-color: var(--card-color);
-    border-bottom: 2px solid var(--border-color);
+    background-color: #1F1B24; /* Slightly darker header */
+    padding: 15px 25px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 10;
 }
 
 .main-header h1 {
-    color: var(--primary-text);
     margin: 0;
+    color: #BB86FC; /* Primary color for title */
+    font-size: 1.8em;
+    letter-spacing: 1px;
 }
 
-.main-content {
-    display: flex;
-    flex: 1;
-    padding: 20px;
+/* Control Panel */
+.control-panel-multi {
+    background-color: #2D2D2D; /* Darker grey for control panel */
+    padding: 20px 25px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* Two columns for selectors */
     gap: 20px;
+    border-bottom: 1px solid #3A3A3A;
 }
 
+.selector-slot {
+    background-color: #3A3A3A; /* Even darker for individual slots */
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+}
+
+.selector-slot h3 {
+    margin-top: 0;
+    color: #03DAC6; /* Secondary color for slot titles */
+    font-size: 1.2em;
+    border-bottom: 1px solid #4CAF50; /* A touch of accent */
+    padding-bottom: 8px;
+    margin-bottom: 15px;
+}
+
+.selector-slot label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #E0E0E0;
+}
+
+/* Dropdown styling */
+.dash-dropdown {
+    margin-bottom: 15px;
+    font-size: 0.9em;
+}
+
+.Select-control, .Select-menu-outer {
+    background-color: #424242 !important;
+    border: 1px solid #616161 !important;
+    color: #E0E0E0 !important;
+}
+
+.Select-value-label {
+    color: #E0E0E0 !important;
+}
+
+.Select--single > .Select-control .Select-value {
+    padding-right: 30px; /* Space for arrow */
+}
+
+.Select-arrow {
+    border-color: #E0E0E0 transparent transparent transparent !important;
+}
+
+.Select-option.is-focused {
+    background-color: #5C5C5C !important;
+    color: #03DAC6 !important;
+}
+
+.Select-option.is-selected {
+    background-color: #BB86FC !important;
+    color: #FFFFFF !important;
+}
+
+/* Main Content Area (Metrics and Map) */
+.main-content-dual-metrics {
+    display: flex;
+    flex-grow: 1; /* Allows it to take remaining vertical space */
+    padding: 20px;
+    gap: 20px; /* Space between metric panels and map */
+}
+
+/* Metrics Sidebars */
 .metrics-sidebar {
-    width: 25%;
+    background-color: #1F1B24;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    flex: 0 0 250px; /* Fixed width for sidebars */
     display: flex;
     flex-direction: column;
     gap: 15px;
 }
 
+.metrics-sidebar h3 {
+    font-size: 1.3em;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid; /* Use current color for border */
+}
+
 .metric-card {
-    background-color: var(--card-color);
-    border-radius: 8px;
-    padding: 15px;
-    border: 1px solid var(--border-color);
+    background-color: #2D2D2D;
+    padding: 12px 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     text-align: center;
 }
 
 .metric-card h2 {
-    color: var(--primary-text);
-    font-size: 1em;
     margin: 0 0 5px 0;
-    text-transform: uppercase;
+    font-size: 1em;
+    color: #BB86FC;
 }
 
 .metric-card p {
-    font-size: 2em;
-    font-weight: 700;
     margin: 0;
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #03DAC6; /* Accent color for values */
 }
 
-.map-container {
-    width: 75%;
+/* Map Container */
+.map-container-dual-metrics {
+    flex-grow: 1; /* Map takes all remaining horizontal space */
+    background-color: #1F1B24;
     border-radius: 8px;
-    overflow: hidden; /* Para que el mapa no se salga de los bordes redondeados */
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    overflow: hidden; /* Ensure map doesn't spill */
+}
+
+/* Plotly Map Specific Styling */
+.js-plotly-plot .plotly .mapboxgl-canvas {
+    border-radius: 8px; /* Match container border-radius */
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1200px) {
+    .metrics-sidebar {
+        flex: 0 0 220px; /* Slightly smaller sidebars on smaller screens */
+    }
+}
+
+@media (max-width: 992px) {
+    .main-content-dual-metrics {
+        flex-direction: column; /* Stack metrics and map vertically */
+        padding: 15px;
+    }
+
+    .metrics-sidebar {
+        width: 100%; /* Take full width when stacked */
+        flex: none; /* Override fixed width */
+    }
+
+    .map-container-dual-metrics {
+        width: 100%;
+        height: 600px; /* Give map a fixed height when stacked */
+        flex: none;
+    }
+
+    .control-panel-multi {
+        grid-template-columns: 1fr; /* Stack selectors on small screens */
+    }
+}
+
+@media (max-width: 600px) {
+    .main-header h1 {
+        font-size: 1.5em;
+    }
 }
