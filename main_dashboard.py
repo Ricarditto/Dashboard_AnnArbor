@@ -16,14 +16,13 @@ class DashboardApp:
 
     def _create_layout(self):
         all_vehicles = self.data_handler.get_all_vehicles()
-        
+
         dcc.Interval(
-        id='interval-component',
-        interval=3000,  # <-- 3000ms = 3 segundos por punto
-        n_intervals=0
+            id='interval-component',
+            interval=3000,  # <-- 3000ms = 3 segundos por punto
+            n_intervals=0
         ),
-
-
+        
         default_vehicle_id = 455
         default_trip_options = []
         if default_vehicle_id in all_vehicles:
@@ -35,7 +34,6 @@ class DashboardApp:
         control_slots = []
         for i in range(1, 3):
             slot = html.Div(className="selector-slot", children=[
-                # --- CAMBIO: Se añade el color al título del slot ---
                 html.H3(f"Vehicle {i} Selection", style={'color': self.trip_colors[i-1]}),
                 html.Label("Select Vehicle:"),
                 dcc.Dropdown(
@@ -57,7 +55,6 @@ class DashboardApp:
         metric_sidebars = []
         for i in range(1, 3):
             sidebar = html.Div(className="metrics-sidebar", children=[
-                # --- CAMBIO: Se asegura que el color del título de las métricas coincida ---
                 html.H3(f"Vehicle {i} Live Metrics", style={'color': self.trip_colors[i-1]}),
                 html.Div(className="metric-card", children=[html.H2("Speed"), html.P(id=f"text-velocidad-{i}", children="-- km/h")]),
                 html.Div(className="metric-card", children=[html.H2("State of Charge (SOC)"), html.P(id=f"text-soc-{i}", children="-- %")]),
@@ -129,8 +126,9 @@ class DashboardApp:
             fig = go.Figure()
             fig.update_layout(
                 mapbox_style="open-street-map",
-                mapbox_center=dict(lat=42.2808, lon=-83.7430),
-                mapbox_zoom=11.5,
+                # --- CAMBIOS DE ZOOM Y CENTRO AQUÍ ---
+                mapbox_center=dict(lat=42.2850, lon=-83.7380), # Coordenadas centradas en Ann Arbor
+                mapbox_zoom=12.5, # Ajuste el zoom a 12.5 para un mejor encuadre
                 margin={"r":0, "t":0, "l":0, "b":0},
                 showlegend=False
             )
@@ -181,6 +179,7 @@ class DashboardApp:
     def run(self, debug=True, port=8051):
         self.app.run(debug=debug, port=port)
 
+# Código para Render
 DATA_FILEPATH = 'ev_dataset.csv' 
 dashboard = DashboardApp(DATA_FILEPATH)
 server = dashboard.app.server
