@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, State
+from dash import dcc, html, Input, Output, State, Patch
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
@@ -24,12 +24,7 @@ class DashboardApp:
         all_vehicles = self.data_handler.get_all_vehicles()
         default_vehicle_id = 455
         default_trip_id = 2323
-        
-        # Cargar opciones de viaje para el vehículo por defecto
-        default_trip_options = []
-        if default_vehicle_id in all_vehicles:
-            trips = self.data_handler.get_trips_for_vehicle(default_vehicle_id)
-            default_trip_options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
+        default_trip_options = [{'label': f'Trip {default_trip_id}', 'value': default_trip_id}]
 
         stores = [
             dcc.Store(id='simulation-state-store', data={
@@ -40,19 +35,9 @@ class DashboardApp:
         control_panel = html.Div(className="selector-slot", children=[
             html.H3("Simulation Control"),
             html.Label("Vehicle:"),
-            dcc.Dropdown(
-                id='vehicle-selector',
-                options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles],
-                value=default_vehicle_id
-                # La propiedad 'disabled' ha sido eliminada
-            ),
+            dcc.Dropdown(id='vehicle-selector', options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles], value=default_vehicle_id),
             html.Label("Trip:"),
-            dcc.Dropdown(
-                id='trip-selector',
-                options=default_trip_options,
-                value=default_trip_id
-                # La propiedad 'disabled' ha sido eliminada
-            )
+            dcc.Dropdown(id='trip-selector', options=default_trip_options, value=default_trip_id)
         ])
 
         metrics_sidebar = html.Div(className="metrics-sidebar", children=[
@@ -72,36 +57,53 @@ class DashboardApp:
             html.Div(className="control-panel-multi", style={'gridTemplateColumns': '1fr'}, children=[control_panel]),
             html.Main(className="main-content-dual-metrics", children=[
                 metrics_sidebar,
-                html.Div(className="map-container-dual-metrics", children=[dcc.Graph(id='vehicle-map', style={'height': '100%'})]),
+                # El mapa ahora se inicializa con una figura vacía
+                html.Div(className="map-container-dual-metrics", children=[dcc.Graph(id='vehicle-map', style={'height': '100%'}, figure={})]),
             ])
         ])
 
     def _register_callbacks(self):
-        # Callback para actualizar las opciones de viaje cuando se elige un nuevo vehículo
+        # Callback para actualizar las opciones de viaje (sin cambios)
         @self.app.callback(
             Output('trip-selector', 'options'),
-            Output('trip-selector', 'value'), # También resetea el viaje seleccionado
+            Output('trip-selector', 'value'),
             Input('vehicle-selector', 'value'),
             prevent_initial_call=True
         )
         def update_trip_options(selected_vehicle):
-            if selected_vehicle is None: 
-                return [], None
+            if selected_vehicle is None: return [], None
             trips = self.data_handler.get_trips_for_vehicle(selected_vehicle)
             options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
-            # Selecciona el primer viaje de la lista por defecto
             return options, trips[0] if trips else None
 
+        # --- NUEVO CALLBACK: Inicializa el mapa solo cuando cambia el viaje ---
         @self.app.callback(
+            Output('vehicle-map', 'figure'),
             Output('simulation-state-store', 'data'),
             Input('trip-selector', 'value'),
             State('interval-component', 'n_intervals')
         )
-        def reset_simulation(trip_id, n_intervals):
-            return {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals}
+        def initialize_map_and_simulation(trip_id, n_intervals):
+            fig = go.Figure()
+            fig.update_layout(
+                mapbox_style="open-street-map",
+                mapbox_center=dict(lat=42.2850, lon=-83.7380),
+                mapbox_zoom=12.5,
+                margin={"r":0, "t":0, "l":0, "b":0},
+                showlegend=False
+            )
+            # Añade trazas vacías que se actualizarán después
+            fig.add_trace(go.Scattermapbox(lat=[], lon=[], mode='lines', line=dict(color=self.trip_color, width=3)))
+            fig.add_trace(go.Scattermapbox(lat=[], lon=[], mode='markers', marker=dict(size=15, color=self.trip_color)))
 
+            # Resetea el estado de la simulación
+            new_sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals}
+            
+            return fig, new_sim_state
+
+        # --- CALLBACK PRINCIPAL MODIFICADO: Ahora solo actualiza datos y usa Patch ---
         @self.app.callback(
-            Output('vehicle-map', 'figure'),
+            Output('vehicle-map', 'figure', allow_duplicate=True),
             Output('text-velocidad', 'children'),
             Output('text-soc', 'children'),
             Output('text-cycle-count', 'children'),
@@ -132,43 +134,31 @@ class DashboardApp:
                 sim_state['start_interval'] = n_intervals
                 elapsed_time = 0
 
-            current_index = elapsed_time
-            if current_index >= duration:
-                 current_index = duration - 1
-                 
+            current_index = min(elapsed_time, duration - 1)
             current_data = trip_df.iloc[current_index]
             path_so_far = trip_df.iloc[:current_index + 1]
             
+            # --- CREACIÓN DEL OBJETO PATCH ---
+            patched_figure = Patch()
+            # Actualiza los datos de la línea (traza 0)
+            patched_figure['data'][0]['lat'] = path_so_far['Latitude[deg]']
+            patched_figure['data'][0]['lon'] = path_so_far['Longitude[deg]']
+            # Actualiza los datos del marcador (traza 1)
+            patched_figure['data'][1]['lat'] = [current_data['Latitude[deg]']]
+            patched_figure['data'][1]['lon'] = [current_data['Longitude[deg]']]
+            
+            # Cálculo de métricas (sin cambios)
             velocidad = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
             soc = f"{current_data['HV_Battery_SOC[%]']:.1f} %"
-            
             ciclos = f"{sim_state['cycle_count']}"
-            distancia_viaje_actual_km = (current_data.get('Trip_Distance[m]', 0) / 1000.0)
-            distancia_total = sim_state['total_distance_offset'] + distancia_viaje_actual_km
+            distancia_total = sim_state['total_distance_offset'] + (current_data.get('Trip_Distance[m]', 0) / 1000.0)
             total_distance_text = f"{distancia_total:.1f} km"
-            
             mdr_prob = np.interp(distancia_total, self.dist_points, self.prob_points)
             mdr_text = f"{mdr_prob * 100:.1f} %"
-            
-            fig = go.Figure()
-            fig.update_layout(
-                mapbox_style="open-street-map",
-                mapbox_center=dict(lat=42.2850, lon=-83.7380),
-                mapbox_zoom=12.5,
-                margin={"r":0, "t":0, "l":0, "b":0},
-                showlegend=False
-            )
-            fig.add_trace(go.Scattermapbox(
-                lat=path_so_far['Latitude[deg]'], lon=path_so_far['Longitude[deg]'],
-                mode='lines', line=dict(color=self.trip_color, width=3)
-            ))
-            fig.add_trace(go.Scattermapbox(
-                lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']],
-                mode='markers', marker=dict(size=15, color=self.trip_color)
-            ))
 
-            return (fig, velocidad, soc, ciclos, total_distance_text, mdr_text, sim_state)
+            return (patched_figure, velocidad, soc, ciclos, total_distance_text, mdr_text, sim_state)
         
+        # Callback para el color de la tarjeta MDR (sin cambios)
         @self.app.callback(
             Output('mdr-card', 'className'),
             Input('text-mdr', 'children')
