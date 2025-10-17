@@ -123,7 +123,8 @@ body {
     font-size: 1.3em;
     margin-bottom: 10px;
     padding-bottom: 5px;
-    border-bottom: 2px solid; /* Use current color for border */
+    border-bottom: 2px solid;
+    text-align: center;
 }
 
 .metric-card {
