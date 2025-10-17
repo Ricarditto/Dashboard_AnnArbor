@@ -16,10 +16,10 @@ class DashboardApp:
 
     def _create_layout(self):
         all_vehicles = self.data_handler.get_all_vehicles()
-
+        
         dcc.Interval(
             id='interval-component',
-            interval=2500,  # <-- 2500ms = 2.5 segundos por punto
+            interval=3000,  # <-- 3000ms = 3 segundos por punto
             n_intervals=0
         ),
 
@@ -29,26 +29,24 @@ class DashboardApp:
             trips = self.data_handler.get_trips_for_vehicle(default_vehicle_id)
             default_trip_options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
 
-        # --- CAMBIO: Añadimos un Store para el ciclo de simulación sincronizado ---
         stores = [dcc.Store(id='cycle-start-store')]
         
         control_slots = []
         for i in range(1, 3):
-            # No necesitamos stores individuales por slot
             slot = html.Div(className="selector-slot", children=[
                 html.H3(f"Vehicle {i} Selection"),
                 html.Label("Select Vehicle:"),
                 dcc.Dropdown(
                     id=f'vehicle-selector-{i}',
                     options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles],
-                    value=455 if i == 1 or i == 2 else None,
+                    value=455,
                     className="vehicle-dropdown"
                 ),
                 html.Label("Select Trip:"),
                 dcc.Dropdown(
                     id=f'trip-selector-{i}',
-                    options=default_trip_options if i == 1 or i == 2 else [],
-                    value=1197 if i == 1 else (1648 if i == 2 else None),
+                    options=default_trip_options,
+                    value=1197 if i == 1 else 1648,
                     className="trip-dropdown"
                 )
             ])
@@ -82,18 +80,20 @@ class DashboardApp:
         ])
 
     def _register_callbacks(self):
-        # Callback para actualizar las opciones de viaje (ahora combinado para ambos)
-        for i in range(1, 3):
+        # Usamos una función fábrica para crear callbacks dentro del bucle y evitar problemas
+        def create_callback_functions(i):
             @self.app.callback(
                 Output(f'trip-selector-{i}', 'options'),
                 Input(f'vehicle-selector-{i}', 'value')
             )
-            def update_trip_options(selected_vehicle, index=i): # Usamos un truco para capturar el índice
+            def update_trip_options(selected_vehicle):
                 if selected_vehicle is None: return []
                 trips = self.data_handler.get_trips_for_vehicle(selected_vehicle)
                 return [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
 
-        # --- CAMBIO: Un único callback para reiniciar el ciclo de simulación ---
+        for i in range(1, 3):
+            create_callback_functions(i)
+
         @self.app.callback(
             Output('cycle-start-store', 'data'),
             Input('trip-selector-1', 'value'),
@@ -101,13 +101,10 @@ class DashboardApp:
             State('interval-component', 'n_intervals')
         )
         def reset_simulation_cycle(trip1, trip2, n_intervals):
-            # Si cualquiera de los viajes cambia, se resetea el reloj del ciclo
             return n_intervals
 
-        # Callback principal con la nueva lógica de sincronización
         @self.app.callback(
             Output('vehicle-map', 'figure'),
-            # ... (todos los demás outputs de métricas)
             Output('text-velocidad-1', 'children'), Output('text-soc-1', 'children'), Output('text-voltaje-1', 'children'),
             Output('text-potencia-1', 'children'), Output('text-energia-1', 'children'), Output('text-degradation-1', 'children'),
             Output('text-mdr-1', 'children'),
@@ -131,33 +128,35 @@ class DashboardApp:
             fig.update_layout(
                 mapbox_style="open-street-map",
                 mapbox_center=dict(lat=42.2808, lon=-83.7430),
-                mapbox_zoom=11.5,
+                mapbox_zoom=12,
                 margin={"r":0, "t":0, "l":0, "b":0},
                 showlegend=False
             )
             
             metrics_outputs = ["-- km/h", "-- %", "-- V", "-- kW", "-- kWh", "--", "--"] * 2
             
-            # --- Lógica de Sincronización ---
-            # 1. Obtener datos y duraciones de ambos viajes
+            # --- LÓGICA DE SINCRONIZACIÓN ACTUALIZADA ---
             trip_dfs = [self.data_handler.get_trip_data(vid, tid) for vid, tid in zip(vehicle_ids, trip_ids)]
             durations = [len(df) for df in trip_dfs]
-            max_duration = max(durations) if any(durations) else 0
+            max_duration = max(durations) if any(d for d in durations if d > 0) else 0
 
-            # 2. Calcular el tiempo actual del ciclo de simulación
             if cycle_start_interval is None or max_duration == 0:
                 current_cycle_time = 0
             else:
                 elapsed_seconds = n_intervals - cycle_start_interval
-                current_cycle_time = elapsed_seconds % max_duration
+                # Si el tiempo transcurrido supera la duración máxima, reiniciamos el reloj.
+                # De lo contrario, sigue avanzando.
+                if elapsed_seconds > max_duration:
+                    current_cycle_time = elapsed_seconds % max_duration
+                else:
+                    current_cycle_time = elapsed_seconds
 
-            # 3. Dibujar cada vehículo
             for i in range(2):
                 trip_df = trip_dfs[i]
                 duration = durations[i]
 
                 if not trip_df.empty:
-                    # 4. Determinar el índice actual (pausa al final)
+                    # El índice se detiene en el último punto si el tiempo del ciclo lo supera
                     current_index = min(current_cycle_time, duration - 1)
                     
                     current_data = trip_df.iloc[current_index]
@@ -172,7 +171,6 @@ class DashboardApp:
                         mode='markers', marker=dict(size=15, color=self.trip_colors[i])
                     ))
 
-                    # Actualizar métricas
                     metrics_start_index = i * 7
                     metrics_outputs[metrics_start_index] = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
                     metrics_outputs[metrics_start_index + 1] = f"{current_data['HV_Battery_SOC[%]']:.1f} %"
