@@ -18,11 +18,11 @@ class DashboardApp:
         all_vehicles = self.data_handler.get_all_vehicles()
 
         dcc.Interval(
-        id='interval-component',
-        interval=2500,  # <-- 1000ms = 1 segundo por punto
-        n_intervals=0
-        ),  
-        
+            id='interval-component',
+            interval=2500,  # <-- 2500ms = 2.5 segundos por punto
+            n_intervals=0
+        ),
+
         default_vehicle_id = 455
         default_trip_options = []
         if default_vehicle_id in all_vehicles:
