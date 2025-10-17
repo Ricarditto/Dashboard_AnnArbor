@@ -130,7 +130,7 @@ class DashboardApp:
             fig.update_layout(
                 mapbox_style="open-street-map",
                 mapbox_center=dict(lat=42.2808, lon=-83.7430),
-                mapbox_zoom=12.5,
+                mapbox_zoom=12,
                 margin={"r":0, "t":0, "l":0, "b":0},
                 showlegend=False
             )
