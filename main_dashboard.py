@@ -128,7 +128,7 @@ class DashboardApp:
                 mapbox_style="open-street-map",
                 # --- CAMBIOS DE ZOOM Y CENTRO AQUÍ ---
                 mapbox_center=dict(lat=42.2850, lon=-83.7380), # Coordenadas centradas en Ann Arbor
-                mapbox_zoom=12.5, # Ajuste el zoom a 12.5 para un mejor encuadre
+                mapbox_zoom=11.5, # Ajuste el zoom a 12.5 para un mejor encuadre
                 margin={"r":0, "t":0, "l":0, "b":0},
                 showlegend=False
             )
