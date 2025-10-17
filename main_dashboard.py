@@ -18,10 +18,11 @@ class DashboardApp:
         all_vehicles = self.data_handler.get_all_vehicles()
         
         dcc.Interval(
-            id='interval-component',
-            interval=3000,  # <-- 3000ms = 3 segundos por punto
-            n_intervals=0
+        id='interval-component',
+        interval=3000,  # <-- 3000ms = 3 segundos por punto
+        n_intervals=0
         ),
+
 
         default_vehicle_id = 455
         default_trip_options = []
@@ -34,7 +35,8 @@ class DashboardApp:
         control_slots = []
         for i in range(1, 3):
             slot = html.Div(className="selector-slot", children=[
-                html.H3(f"Vehicle {i} Selection"),
+                # --- CAMBIO: Se añade el color al título del slot ---
+                html.H3(f"Vehicle {i} Selection", style={'color': self.trip_colors[i-1]}),
                 html.Label("Select Vehicle:"),
                 dcc.Dropdown(
                     id=f'vehicle-selector-{i}',
@@ -55,6 +57,7 @@ class DashboardApp:
         metric_sidebars = []
         for i in range(1, 3):
             sidebar = html.Div(className="metrics-sidebar", children=[
+                # --- CAMBIO: Se asegura que el color del título de las métricas coincida ---
                 html.H3(f"Vehicle {i} Live Metrics", style={'color': self.trip_colors[i-1]}),
                 html.Div(className="metric-card", children=[html.H2("Speed"), html.P(id=f"text-velocidad-{i}", children="-- km/h")]),
                 html.Div(className="metric-card", children=[html.H2("State of Charge (SOC)"), html.P(id=f"text-soc-{i}", children="-- %")]),
@@ -80,7 +83,6 @@ class DashboardApp:
         ])
 
     def _register_callbacks(self):
-        # Usamos una función fábrica para crear callbacks dentro del bucle y evitar problemas
         def create_callback_functions(i):
             @self.app.callback(
                 Output(f'trip-selector-{i}', 'options'),
@@ -128,14 +130,13 @@ class DashboardApp:
             fig.update_layout(
                 mapbox_style="open-street-map",
                 mapbox_center=dict(lat=42.2808, lon=-83.7430),
-                mapbox_zoom=12,
+                mapbox_zoom=12.5,
                 margin={"r":0, "t":0, "l":0, "b":0},
                 showlegend=False
             )
             
             metrics_outputs = ["-- km/h", "-- %", "-- V", "-- kW", "-- kWh", "--", "--"] * 2
             
-            # --- LÓGICA DE SINCRONIZACIÓN ACTUALIZADA ---
             trip_dfs = [self.data_handler.get_trip_data(vid, tid) for vid, tid in zip(vehicle_ids, trip_ids)]
             durations = [len(df) for df in trip_dfs]
             max_duration = max(durations) if any(d for d in durations if d > 0) else 0
@@ -144,8 +145,6 @@ class DashboardApp:
                 current_cycle_time = 0
             else:
                 elapsed_seconds = n_intervals - cycle_start_interval
-                # Si el tiempo transcurrido supera la duración máxima, reiniciamos el reloj.
-                # De lo contrario, sigue avanzando.
                 if elapsed_seconds > max_duration:
                     current_cycle_time = elapsed_seconds % max_duration
                 else:
@@ -156,7 +155,6 @@ class DashboardApp:
                 duration = durations[i]
 
                 if not trip_df.empty:
-                    # El índice se detiene en el último punto si el tiempo del ciclo lo supera
                     current_index = min(current_cycle_time, duration - 1)
                     
                     current_data = trip_df.iloc[current_index]
