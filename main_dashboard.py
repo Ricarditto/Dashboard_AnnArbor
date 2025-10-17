@@ -23,45 +23,30 @@ class DashboardApp:
             trips = self.data_handler.get_trips_for_vehicle(default_vehicle_id)
             default_trip_options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
 
-        slot1 = html.Div(className="selector-slot", children=[
-            html.H3(f"Vehicle 1 Selection"),
-            dcc.Store(id='trip-start-interval-store-1'),
-            html.Label("Select Vehicle:"),
-            dcc.Dropdown(
-                id='vehicle-selector-1',
-                options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles],
-                value=455,
-                className="vehicle-dropdown"
-            ),
-            html.Label("Select Trip:"),
-            dcc.Dropdown(
-                id='trip-selector-1',
-                options=default_trip_options,
-                value=1197,
-                className="trip-dropdown"
-            )
-        ])
+        # --- CAMBIO: Añadimos un Store para el ciclo de simulación sincronizado ---
+        stores = [dcc.Store(id='cycle-start-store')]
         
-        slot2 = html.Div(className="selector-slot", children=[
-            html.H3(f"Vehicle 2 Selection"),
-            dcc.Store(id='trip-start-interval-store-2'),
-            html.Label("Select Vehicle:"),
-            dcc.Dropdown(
-                id='vehicle-selector-2',
-                options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles],
-                value=455,
-                className="vehicle-dropdown"
-            ),
-            html.Label("Select Trip:"),
-            dcc.Dropdown(
-                id='trip-selector-2',
-                options=default_trip_options,
-                value=1648,
-                className="trip-dropdown"
-            )
-        ])
-
-        control_slots = [slot1, slot2]
+        control_slots = []
+        for i in range(1, 3):
+            # No necesitamos stores individuales por slot
+            slot = html.Div(className="selector-slot", children=[
+                html.H3(f"Vehicle {i} Selection"),
+                html.Label("Select Vehicle:"),
+                dcc.Dropdown(
+                    id=f'vehicle-selector-{i}',
+                    options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles],
+                    value=455 if i == 1 or i == 2 else None,
+                    className="vehicle-dropdown"
+                ),
+                html.Label("Select Trip:"),
+                dcc.Dropdown(
+                    id=f'trip-selector-{i}',
+                    options=default_trip_options if i == 1 or i == 2 else [],
+                    value=1197 if i == 1 else (1648 if i == 2 else None),
+                    className="trip-dropdown"
+                )
+            ])
+            control_slots.append(slot)
 
         metric_sidebars = []
         for i in range(1, 3):
@@ -78,6 +63,7 @@ class DashboardApp:
             metric_sidebars.append(sidebar)
 
         return html.Div(className="dashboard-container", children=[
+            *stores,
             dcc.Interval(id='interval-component', interval=500, n_intervals=0),
             html.Header(className="main-header", children=[html.H1("🛰️ EV-Sim Dashboard")]),
             html.Div(className="control-panel-multi", children=control_slots),
@@ -90,63 +76,50 @@ class DashboardApp:
         ])
 
     def _register_callbacks(self):
-        def create_callback_functions(i):
+        # Callback para actualizar las opciones de viaje (ahora combinado para ambos)
+        for i in range(1, 3):
             @self.app.callback(
                 Output(f'trip-selector-{i}', 'options'),
                 Input(f'vehicle-selector-{i}', 'value')
             )
-            def update_trip_options(selected_vehicle):
+            def update_trip_options(selected_vehicle, index=i): # Usamos un truco para capturar el índice
                 if selected_vehicle is None: return []
                 trips = self.data_handler.get_trips_for_vehicle(selected_vehicle)
                 return [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
 
-            @self.app.callback(
-                Output(f'trip-start-interval-store-{i}', 'data'),
-                Input(f'trip-selector-{i}', 'value'),
-                State('interval-component', 'n_intervals')
-            )
-            def reset_trip_timer(trip_id, n_intervals):
-                return n_intervals
-
-        for i in range(1, 3):
-            create_callback_functions(i)
-
+        # --- CAMBIO: Un único callback para reiniciar el ciclo de simulación ---
         @self.app.callback(
-            # --- NUEVOS OUTPUTS AÑADIDOS AL CALLBACK ---
+            Output('cycle-start-store', 'data'),
+            Input('trip-selector-1', 'value'),
+            Input('trip-selector-2', 'value'),
+            State('interval-component', 'n_intervals')
+        )
+        def reset_simulation_cycle(trip1, trip2, n_intervals):
+            # Si cualquiera de los viajes cambia, se resetea el reloj del ciclo
+            return n_intervals
+
+        # Callback principal con la nueva lógica de sincronización
+        @self.app.callback(
             Output('vehicle-map', 'figure'),
-            # Vehículo 1
-            Output('text-velocidad-1', 'children'),
-            Output('text-soc-1', 'children'),
-            Output('text-voltaje-1', 'children'),
-            Output('text-potencia-1', 'children'),
-            Output('text-energia-1', 'children'),
-            Output('text-degradation-1', 'children'),
+            # ... (todos los demás outputs de métricas)
+            Output('text-velocidad-1', 'children'), Output('text-soc-1', 'children'), Output('text-voltaje-1', 'children'),
+            Output('text-potencia-1', 'children'), Output('text-energia-1', 'children'), Output('text-degradation-1', 'children'),
             Output('text-mdr-1', 'children'),
-            # Vehículo 2
-            Output('text-velocidad-2', 'children'),
-            Output('text-soc-2', 'children'),
-            Output('text-voltaje-2', 'children'),
-            Output('text-potencia-2', 'children'),
-            Output('text-energia-2', 'children'),
-            Output('text-degradation-2', 'children'),
+            Output('text-velocidad-2', 'children'), Output('text-soc-2', 'children'), Output('text-voltaje-2', 'children'),
+            Output('text-potencia-2', 'children'), Output('text-energia-2', 'children'), Output('text-degradation-2', 'children'),
             Output('text-mdr-2', 'children'),
-            # Inputs y States
             Input('interval-component', 'n_intervals'),
-            State('vehicle-selector-1', 'value'),
-            State('vehicle-selector-2', 'value'),
-            State('trip-selector-1', 'value'),
-            State('trip-selector-2', 'value'),
-            State('trip-start-interval-store-1', 'data'),
-            State('trip-start-interval-store-2', 'data'),
+            State('vehicle-selector-1', 'value'), State('vehicle-selector-2', 'value'),
+            State('trip-selector-1', 'value'), State('trip-selector-2', 'value'),
+            State('cycle-start-store', 'data'),
         )
         def update_multi_trip_dashboard(n_intervals, 
                                         vehicle_id_1, vehicle_id_2,
                                         trip_id_1, trip_id_2,
-                                        start_interval_1, start_interval_2):
+                                        cycle_start_interval):
             
             vehicle_ids = [vehicle_id_1, vehicle_id_2]
             trip_ids = [trip_id_1, trip_id_2]
-            start_intervals = [start_interval_1, start_interval_2]
             
             fig = go.Figure()
             fig.update_layout(
@@ -157,51 +130,49 @@ class DashboardApp:
                 showlegend=False
             )
             
-            # --- LISTA DE MÉTRICAS ACTUALIZADA CON LOS NUEVOS VALORES ---
             metrics_outputs = ["-- km/h", "-- %", "-- V", "-- kW", "-- kWh", "--", "--"] * 2
+            
+            # --- Lógica de Sincronización ---
+            # 1. Obtener datos y duraciones de ambos viajes
+            trip_dfs = [self.data_handler.get_trip_data(vid, tid) for vid, tid in zip(vehicle_ids, trip_ids)]
+            durations = [len(df) for df in trip_dfs]
+            max_duration = max(durations) if any(durations) else 0
 
+            # 2. Calcular el tiempo actual del ciclo de simulación
+            if cycle_start_interval is None or max_duration == 0:
+                current_cycle_time = 0
+            else:
+                elapsed_seconds = n_intervals - cycle_start_interval
+                current_cycle_time = elapsed_seconds % max_duration
+
+            # 3. Dibujar cada vehículo
             for i in range(2):
-                vehicle_id = vehicle_ids[i]
-                trip_id = trip_ids[i]
-                start_interval = start_intervals[i]
+                trip_df = trip_dfs[i]
+                duration = durations[i]
 
-                if vehicle_id and trip_id and start_interval is not None:
-                    trip_df = self.data_handler.get_trip_data(vehicle_id, trip_id)
-                    if trip_df.empty: continue
-
-                    elapsed_seconds = n_intervals - start_interval
-                    current_index = elapsed_seconds % len(trip_df)
+                if not trip_df.empty:
+                    # 4. Determinar el índice actual (pausa al final)
+                    current_index = min(current_cycle_time, duration - 1)
+                    
                     current_data = trip_df.iloc[current_index]
                     path_so_far = trip_df.iloc[:current_index + 1]
 
                     fig.add_trace(go.Scattermapbox(
-                        lat=path_so_far['Latitude[deg]'],
-                        lon=path_so_far['Longitude[deg]'],
-                        mode='lines',
-                        line=dict(color=self.trip_colors[i], width=3)
+                        lat=path_so_far['Latitude[deg]'], lon=path_so_far['Longitude[deg]'],
+                        mode='lines', line=dict(color=self.trip_colors[i], width=3)
                     ))
-
                     fig.add_trace(go.Scattermapbox(
-                        lat=[current_data['Latitude[deg]']],
-                        lon=[current_data['Longitude[deg]']],
-                        mode='markers',
-                        marker=dict(size=15, color=self.trip_colors[i])
+                        lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']],
+                        mode='markers', marker=dict(size=15, color=self.trip_colors[i])
                     ))
 
-                    velocidad = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
-                    soc = f"{current_data['HV_Battery_SOC[%]']:.1f} %"
-                    voltaje = f"{current_data['HV_Battery_Voltage[V]']:.1f} V"
-                    potencia = f"{current_data['Power[W]'] / 1000:.2f} kW"
-                    energia = f"{current_data['Accum_Energy[kWh]']:.3f} kWh"
-                    
-                    # --- ÍNDICE AJUSTADO PARA INCLUIR LAS 7 MÉTRICAS POR VEHÍCULO ---
+                    # Actualizar métricas
                     metrics_start_index = i * 7
-                    metrics_outputs[metrics_start_index] = velocidad
-                    metrics_outputs[metrics_start_index + 1] = soc
-                    metrics_outputs[metrics_start_index + 2] = voltaje
-                    metrics_outputs[metrics_start_index + 3] = potencia
-                    metrics_outputs[metrics_start_index + 4] = energia
-                    # Los valores de Degradation y MDR permanecen como "--"
+                    metrics_outputs[metrics_start_index] = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
+                    metrics_outputs[metrics_start_index + 1] = f"{current_data['HV_Battery_SOC[%]']:.1f} %"
+                    metrics_outputs[metrics_start_index + 2] = f"{current_data['HV_Battery_Voltage[V]']:.1f} V"
+                    metrics_outputs[metrics_start_index + 3] = f"{current_data['Power[W]'] / 1000:.2f} kW"
+                    metrics_outputs[metrics_start_index + 4] = f"{current_data['Accum_Energy[kWh]']:.3f} kWh"
 
             return [fig] + metrics_outputs
             
