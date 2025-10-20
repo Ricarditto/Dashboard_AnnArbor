@@ -1,5 +1,6 @@
 import dash
 from dash import dcc, html, Input, Output, State, Patch
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
@@ -13,7 +14,7 @@ class DashboardApp:
         self.app.title = "EV Degradation Simulator"
         self.trip_color = '#BB86FC'
         
-        self.dist_points = np.array([0, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110])
+        self.dist_points = np.array([0, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125])
         self.prob_points = np.array([0, 0, 0.05, 0.15, 0.3, 0.4, 0.55, 0.7, 0.88, 1.0, 1.0])
 
         self.app.layout = self._create_layout()
@@ -54,12 +55,12 @@ class DashboardApp:
 
         return html.Div(className="dashboard-container", children=[
             *stores,
-            dcc.Interval(id='interval-component', interval=100, n_intervals=0, disabled=True),
+            dcc.Interval(id='interval-component', interval=100, n_intervals=0),
             html.Header(className="main-header", children=[html.H1("🛰️EV-Sim Dashboard")]),
             html.Div(className="control-panel-multi", style={'gridTemplateColumns': '1fr'}, children=[control_panel]),
             html.Main(className="main-content-dual-metrics", children=[
                 metrics_sidebar,
-                html.Div(className="map-container-dual-metrics", children=[dcc.Graph(id='vehicle-map', style={'height': '100%'}, figure={})]),
+                html.Div(className="map-container-dual-metrics", children=[dcc.Graph(id='vehicle-map', style={'height': '100%'})]),
             ])
         ])
 
@@ -71,7 +72,8 @@ class DashboardApp:
             prevent_initial_call=True
         )
         def update_trip_options(selected_vehicle):
-            if selected_vehicle is None: return [], None
+            if selected_vehicle is None: 
+                raise PreventUpdate
             trips = self.data_handler.get_trips_for_vehicle(selected_vehicle)
             options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
             return options, trips[0] if trips else None
@@ -79,51 +81,33 @@ class DashboardApp:
         @self.app.callback(
             Output('vehicle-map', 'figure'),
             Output('simulation-state-store', 'data'),
-            Output('interval-component', 'disabled', allow_duplicate=True),
-            Input('trip-selector', 'value'),
-            State('interval-component', 'n_intervals')
-            # --- CORRECCIÓN: Se elimina 'prevent_initial_call=True' ---
-        )
-        def initialize_map_and_simulation(trip_id, n_intervals):
-            fig = go.Figure()
-            fig.update_layout(
-                mapbox_style="open-street-map",
-                mapbox_center=dict(lat=42.2850, lon=-83.7380),
-                mapbox_zoom=12.5,
-                margin={"r":0, "t":0, "l":0, "b":0},
-                showlegend=False
-            )
-            fig.add_trace(go.Scattermapbox(lat=[], lon=[], mode='lines', line=dict(color=self.trip_color, width=3)))
-            fig.add_trace(go.Scattermapbox(lat=[], lon=[], mode='markers', marker=dict(size=15, color=self.trip_color)))
-            
-            new_sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals, 'soc_offset': 0.0}
-            
-            return fig, new_sim_state, False
-
-        @self.app.callback(
-            Output('vehicle-map', 'figure', allow_duplicate=True),
+            Output('interval-component', 'disabled'),
             Output('text-velocidad', 'children'),
             Output('text-soc', 'children'),
             Output('text-cycle-count', 'children'),
             Output('text-total-distance', 'children'),
             Output('text-mdr', 'children'),
-            Output('simulation-state-store', 'data', allow_duplicate=True),
-            Output('interval-component', 'disabled', allow_duplicate=True),
             Input('interval-component', 'n_intervals'),
+            Input('trip-selector', 'value'),
             State('vehicle-selector', 'value'),
-            State('trip-selector', 'value'),
             State('simulation-state-store', 'data'),
-            prevent_initial_call=True
         )
-        def update_simulation_dashboard(n_intervals, vehicle_id, trip_id, sim_state):
-            if not vehicle_id or not trip_id or not sim_state:
-                return dash.no_update
+        def unified_simulation_callback(n_intervals, trip_id, vehicle_id, sim_state):
+            ctx = dash.callback_context
+            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else 'initial_load'
+
+            if not vehicle_id or not trip_id:
+                raise PreventUpdate
+
+            if trigger_id == 'trip-selector' or trigger_id == 'initial_load':
+                sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals, 'soc_offset': 0.0}
 
             trip_df = self.data_handler.get_trip_data(vehicle_id, trip_id)
-            if trip_df.empty: return dash.no_update
+            if trip_df.empty: 
+                raise PreventUpdate
 
             duration = len(trip_df)
-            trip_distance_km = trip_df['Trip_Distance[m]'].iloc[-1] / 1000.0 if 'Trip_Distance[m]' in trip_df.columns and not trip_df.empty else 0
+            trip_distance_km = trip_df['Trip_Distance[m]'].iloc[-1] / 1000.0 if 'Trip_Distance[m]' in trip_df.columns else 0
             
             soc_inicial_viaje = trip_df['HV_Battery_SOC[%]'].iloc[0]
             soc_final_viaje = trip_df['HV_Battery_SOC[%]'].iloc[-1]
@@ -142,20 +126,10 @@ class DashboardApp:
             current_data = trip_df.iloc[current_index]
             
             soc_actual = current_data['HV_Battery_SOC[%]'] - sim_state['soc_offset']
+            disable_interval = soc_actual <= 0
+            if soc_actual <= 0: soc_actual = 0
             
-            if soc_actual <= 0:
-                soc_actual = 0
-                disable_interval = True
-            else:
-                disable_interval = False
-
             path_so_far = trip_df.iloc[:current_index + 1]
-            
-            patched_figure = Patch()
-            patched_figure['data'][0]['lat'] = path_so_far['Latitude[deg]']
-            patched_figure['data'][0]['lon'] = path_so_far['Longitude[deg]']
-            patched_figure['data'][1]['lat'] = [current_data['Latitude[deg]']]
-            patched_figure['data'][1]['lon'] = [current_data['Longitude[deg]']]
             
             velocidad = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
             soc = f"{soc_actual:.1f} %"
@@ -164,8 +138,28 @@ class DashboardApp:
             total_distance_text = f"{distancia_total:.1f} km"
             mdr_prob = np.interp(distancia_total, self.dist_points, self.prob_points)
             mdr_text = f"{mdr_prob * 100:.1f} %"
-
-            return (patched_figure, velocidad, soc, ciclos, total_distance_text, mdr_text, sim_state, disable_interval)
+            
+            if trigger_id == 'trip-selector' or trigger_id == 'initial_load':
+                fig = go.Figure()
+                fig.add_trace(go.Scattermap(lat=path_so_far['Latitude[deg]'], lon=path_so_far['Longitude[deg]'], mode='lines', line=dict(color=self.trip_color, width=3)))
+                fig.add_trace(go.Scattermap(lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']], mode='markers', marker=dict(size=15, color=self.trip_color)))
+                fig.update_layout(
+                    margin={"r":0, "t":0, "l":0, "b":0},
+                    showlegend=False,
+                    map_style="open-street-map",
+                    map_center=dict(lat=42.2850, lon=-83.7380),
+                    map_zoom=12.5
+                )
+                return fig, sim_state, disable_interval, velocidad, soc, ciclos, total_distance_text, mdr_text
+            else:
+                patched_figure = Patch()
+                patched_figure['data'][0]['lat'] = path_so_far['Latitude[deg]']
+                patched_figure['data'][0]['lon'] = path_so_far['Longitude[deg]']
+                patched_figure['data'][1]['lat'] = [current_data['Latitude[deg]']]
+                patched_figure['data'][1]['lon'] = [current_data['Longitude[deg]']]
+                
+                # --- CORRECCIÓN: Se devuelven los 8 valores en el orden correcto ---
+                return patched_figure, sim_state, disable_interval, velocidad, soc, ciclos, total_distance_text, mdr_text
         
         @self.app.callback(
             Output('mdr-card', 'className'),
