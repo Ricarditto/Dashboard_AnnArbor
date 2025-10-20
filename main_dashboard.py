@@ -54,7 +54,6 @@ class DashboardApp:
 
         return html.Div(className="dashboard-container", children=[
             *stores,
-            # El intervalo ahora empieza deshabilitado por seguridad
             dcc.Interval(id='interval-component', interval=100, n_intervals=0, disabled=True),
             html.Header(className="main-header", children=[html.H1("🛰️EV-Sim Dashboard")]),
             html.Div(className="control-panel-multi", style={'gridTemplateColumns': '1fr'}, children=[control_panel]),
@@ -80,10 +79,10 @@ class DashboardApp:
         @self.app.callback(
             Output('vehicle-map', 'figure'),
             Output('simulation-state-store', 'data'),
-            Output('interval-component', 'disabled', allow_duplicate=True), # <-- Controla el intervalo
+            Output('interval-component', 'disabled', allow_duplicate=True),
             Input('trip-selector', 'value'),
-            State('interval-component', 'n_intervals'),
-            prevent_initial_call=True
+            State('interval-component', 'n_intervals')
+            # --- CORRECCIÓN: Se elimina 'prevent_initial_call=True' ---
         )
         def initialize_map_and_simulation(trip_id, n_intervals):
             fig = go.Figure()
@@ -99,7 +98,6 @@ class DashboardApp:
             
             new_sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals, 'soc_offset': 0.0}
             
-            # Al iniciar, habilita el intervalo para que comience la simulación
             return fig, new_sim_state, False
 
         @self.app.callback(
@@ -110,7 +108,7 @@ class DashboardApp:
             Output('text-total-distance', 'children'),
             Output('text-mdr', 'children'),
             Output('simulation-state-store', 'data', allow_duplicate=True),
-            Output('interval-component', 'disabled', allow_duplicate=True), # <-- Añadido para detener el intervalo
+            Output('interval-component', 'disabled', allow_duplicate=True),
             Input('interval-component', 'n_intervals'),
             State('vehicle-selector', 'value'),
             State('trip-selector', 'value'),
@@ -143,19 +141,14 @@ class DashboardApp:
             current_index = min(elapsed_time, duration - 1)
             current_data = trip_df.iloc[current_index]
             
-            # --- Lógica de Detención por SOC ---
             soc_actual = current_data['HV_Battery_SOC[%]'] - sim_state['soc_offset']
             
-            # Si el SOC llega a 0, detenemos la simulación
             if soc_actual <= 0:
-                soc_actual = 0 # Aseguramos que no muestre un valor negativo
-                # Deshabilitamos el intervalo devolviendo True
+                soc_actual = 0
                 disable_interval = True
             else:
-                # Mantenemos el intervalo habilitado devolviendo False
                 disable_interval = False
 
-            # --- Actualización de UI ---
             path_so_far = trip_df.iloc[:current_index + 1]
             
             patched_figure = Patch()
