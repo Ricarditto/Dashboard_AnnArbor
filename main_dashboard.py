@@ -182,6 +182,7 @@ class DashboardApp:
         self.app.run(debug=debug, port=port)
 
 # Código para Render
+
 DATA_FILEPATH = 'ev_dataset.csv' 
 dashboard = DashboardApp(DATA_FILEPATH)
 server = dashboard.app.server
