@@ -196,3 +196,24 @@ body {
         font-size: 1.5em;
     }
 }
+
+.metric-card.mdr-green {
+    background-color: #28a745; /* Verde */
+}
+.metric-card.mdr-green h2, .metric-card.mdr-green p {
+    color: #FFFFFF;
+}
+
+.metric-card.mdr-yellow {
+    background-color: #ffc107; /* Amarillo */
+}
+.metric-card.mdr-yellow h2, .metric-card.mdr-yellow p {
+    color: #212529; /* Texto oscuro para contraste */
+}
+
+.metric-card.mdr-red {
+    background-color: #dc3545; /* Rojo */
+}
+.metric-card.mdr-red h2, .metric-card.mdr-red p {
+    color: #FFFFFF;
+}
