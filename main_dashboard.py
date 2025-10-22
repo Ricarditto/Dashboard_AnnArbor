@@ -31,7 +31,8 @@ class DashboardApp:
                 'cycle_count': 0, 
                 'total_distance_offset': 0.0, 
                 'start_interval': 0,
-                'soc_offset': 0.0
+                'soc_offset': 0.0,
+                'direction': 'forward'
             })
         ]
 
@@ -100,15 +101,14 @@ class DashboardApp:
                 raise PreventUpdate
 
             if trigger_id == 'trip-selector' or trigger_id == 'initial_load':
-                sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals, 'soc_offset': 0.0}
+                sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals, 'soc_offset': 0.0, 'direction': 'forward'}
 
             trip_df = self.data_handler.get_trip_data(vehicle_id, trip_id)
             if trip_df.empty: 
                 raise PreventUpdate
 
             duration = len(trip_df)
-            trip_distance_km = trip_df['Trip_Distance[m]'].iloc[-1] / 1000.0 if 'Trip_Distance[m]' in trip_df.columns else 0
-            
+            trip_distance_m = trip_df['Trip_Distance[m]'].iloc[-1] if 'Trip_Distance[m]' in trip_df.columns else 0
             soc_inicial_viaje = trip_df['HV_Battery_SOC[%]'].iloc[0]
             soc_final_viaje = trip_df['HV_Battery_SOC[%]'].iloc[-1]
             soc_consumido_por_viaje = soc_inicial_viaje - soc_final_viaje
@@ -116,39 +116,63 @@ class DashboardApp:
             elapsed_time = n_intervals - sim_state['start_interval']
             
             if duration > 0 and elapsed_time >= duration:
-                sim_state['cycle_count'] += 1
-                sim_state['total_distance_offset'] += trip_distance_km
+                # --- ACUMULACIÓN CORRECTA: Se actualiza al final de CADA tramo (ida o vuelta) ---
+                sim_state['total_distance_offset'] += (trip_distance_m / 1000.0)
                 sim_state['soc_offset'] += soc_consumido_por_viaje
+                
+                if sim_state['direction'] == 'forward':
+                    sim_state['direction'] = 'backward'
+                else:
+                    sim_state['direction'] = 'forward'
+                    sim_state['cycle_count'] += 1 # Un ciclo se cuenta al completar la vuelta
+                
                 sim_state['start_interval'] = n_intervals
                 elapsed_time = 0
 
-            current_index = min(elapsed_time, duration - 1)
+            # --- Lógica de Posición (sin cambios) ---
+            if sim_state['direction'] == 'forward':
+                current_index = min(elapsed_time, duration - 1)
+            else:
+                current_index = max(0, duration - 1 - elapsed_time)
+            
             current_data = trip_df.iloc[current_index]
             
-            soc_actual = current_data['HV_Battery_SOC[%]'] - sim_state['soc_offset']
+            # --- CÁLCULO DE MÉTRICAS SIMPLIFICADO Y CORREGIDO ---
+            # El SOC y la Distancia del tramo actual se calculan de forma simétrica
+            if sim_state['direction'] == 'forward':
+                distance_this_leg_km = current_data.get('Trip_Distance[m]', 0) / 1000.0
+                soc_actual = current_data['HV_Battery_SOC[%]'] - sim_state['soc_offset']
+            else: # backward
+                distance_this_leg_km = (trip_distance_m - current_data.get('Trip_Distance[m]', 0)) / 1000.0
+                apparent_soc_regen = current_data['HV_Battery_SOC[%]'] - soc_final_viaje
+                soc_at_turnaround = soc_final_viaje - (sim_state['soc_offset'] - soc_consumido_por_viaje)
+                soc_actual = soc_at_turnaround - apparent_soc_regen
+
+            # El total es siempre el offset + el progreso en el tramo actual
+            distancia_total = sim_state['total_distance_offset'] + distance_this_leg_km
+            # --- FIN DE LA CORRECCIÓN ---
+
             disable_interval = soc_actual <= 0
             if soc_actual <= 0: soc_actual = 0
             
-            path_so_far = trip_df.iloc[:current_index + 1]
+            path_so_far = trip_df.iloc[:current_index + 1] if sim_state['direction'] == 'forward' else trip_df.iloc[current_index:]
             
             velocidad = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
             soc = f"{soc_actual:.1f} %"
             ciclos = f"{sim_state['cycle_count']}"
-            distancia_total = sim_state['total_distance_offset'] + (current_data.get('Trip_Distance[m]', 0) / 1000.0)
             total_distance_text = f"{distancia_total:.1f} km"
             mdr_prob = np.interp(distancia_total, self.dist_points, self.prob_points)
             mdr_text = f"{mdr_prob * 100:.1f} %"
             
             if trigger_id == 'trip-selector' or trigger_id == 'initial_load':
                 fig = go.Figure()
-                fig.add_trace(go.Scattermap(lat=path_so_far['Latitude[deg]'], lon=path_so_far['Longitude[deg]'], mode='lines', line=dict(color=self.trip_color, width=3)))
-                fig.add_trace(go.Scattermap(lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']], mode='markers', marker=dict(size=15, color=self.trip_color)))
+                fig.add_trace(go.Scattermap(lat=[], lon=[], mode='lines', line=dict(color=self.trip_color, width=3)))
+                fig.add_trace(go.Scattermap(lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']], 
+                                            mode='markers', marker=dict(symbol='car', size=30, color='black')))
                 fig.update_layout(
-                    margin={"r":0, "t":0, "l":0, "b":0},
-                    showlegend=False,
+                    margin={"r":0, "t":0, "l":0, "b":0}, showlegend=False,
                     map_style="open-street-map",
-                    map_center=dict(lat=42.2850, lon=-83.7380),
-                    map_zoom=12.5
+                    map_center=dict(lat=42.2850, lon=-83.7380), map_zoom=12.5
                 )
                 return fig, sim_state, disable_interval, velocidad, soc, ciclos, total_distance_text, mdr_text
             else:
@@ -157,8 +181,6 @@ class DashboardApp:
                 patched_figure['data'][0]['lon'] = path_so_far['Longitude[deg]']
                 patched_figure['data'][1]['lat'] = [current_data['Latitude[deg]']]
                 patched_figure['data'][1]['lon'] = [current_data['Longitude[deg]']]
-                
-                # --- CORRECCIÓN: Se devuelven los 8 valores en el orden correcto ---
                 return patched_figure, sim_state, disable_interval, velocidad, soc, ciclos, total_distance_text, mdr_text
         
         @self.app.callback(
@@ -182,7 +204,6 @@ class DashboardApp:
         self.app.run(debug=debug, port=port)
 
 # Código para Render
-
 DATA_FILEPATH = 'ev_dataset.csv' 
 dashboard = DashboardApp(DATA_FILEPATH)
 server = dashboard.app.server
