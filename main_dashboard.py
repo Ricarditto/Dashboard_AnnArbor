@@ -14,8 +14,8 @@ class DashboardApp:
         self.app.title = "EV Degradation Simulator"
         self.trip_color = '#BB86FC'
         
-        self.dist_points = np.array([0, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125])
-        self.prob_points = np.array([0, 0, 0.05, 0.15, 0.3, 0.4, 0.55, 0.7, 0.88, 1.0, 1.0])
+        self.dist_points = np.array([0, 70 ,75, 80, 87, 90, 93, 95, 98, 100, 103])
+        self.prob_points = np.array([0, 0, 0.05, 0.15, 0.3, 0.4, 0.55, 0.7, 0.88, 0.96, 0.98])
 
         self.app.layout = self._create_layout()
         self._register_callbacks()
@@ -56,7 +56,7 @@ class DashboardApp:
 
         return html.Div(className="dashboard-container", children=[
             *stores,
-            dcc.Interval(id='interval-component', interval=100, n_intervals=0),
+            dcc.Interval(id='interval-component', interval=50, n_intervals=0),
             html.Header(className="main-header", children=[html.H1("🛰️EV-Sim Dashboard")]),
             html.Div(className="control-panel-multi", style={'gridTemplateColumns': '1fr'}, children=[control_panel]),
             html.Main(className="main-content-dual-metrics", children=[
