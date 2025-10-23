@@ -1,205 +1,277 @@
 import dash
-from dash import dcc, html, Input, Output, State, Patch
-from dash.exceptions import PreventUpdate
+from dash import dcc, html, Input, Output, State
 import plotly.graph_objects as go
 import pandas as pd
-import numpy as np
+import math # <--- AÑADIDO
 
-from data_handler import DataHandler
+# Asumiendo que data_handler.py existe y la clase DataHandler está definida
+# Se crea una clase placeholder si no se proporciona el archivo
+try:
+    from data_handler import DataHandler
+except ImportError:
+    print("Advertencia: No se encontró data_handler.py. Usando DataHandler placeholder.")
+    class DataHandler:
+        def __init__(self, filepath):
+            # Simulación simple: Cargar datos y asumir columnas
+            try:
+                self.df = pd.read_csv(filepath)
+                # Asegurarse de que las columnas necesarias existan (simulación)
+                if 'Vehicle_ID' not in self.df: self.df['Vehicle_ID'] = 455
+                if 'Trip_ID' not in self.df: self.df['Trip_ID'] = 1197
+                if 'Latitude[deg]' not in self.df: self.df['Latitude[deg]'] = 42.28
+                if 'Longitude[deg]' not in self.df: self.df['Longitude[deg]'] = -83.73
+                if 'Vehicle_Speed[km/h]' not in self.df: self.df['Vehicle_Speed[km/h]'] = 0
+                if 'HV_Battery_SOC[%]' not in self.df: self.df['HV_Battery_SOC[%]'] = 100
+                if 'HV_Battery_Voltage[V]' not in self.df: self.df['HV_Battery_Voltage[V]'] = 400
+                if 'Power[W]' not in self.df: self.df['Power[W]'] = 0
+                if 'Accum_Energy[kWh]' not in self.df: self.df['Accum_Energy[kWh]'] = 0
+
+            except FileNotFoundError:
+                print(f"Error: No se encontró el archivo de datos en {filepath}")
+                self.df = pd.DataFrame()
+            except Exception as e:
+                print(f"Error cargando datos: {e}")
+                self.df = pd.DataFrame()
+
+
+        def get_all_vehicles(self):
+            if 'Vehicle_ID' in self.df:
+                return self.df['Vehicle_ID'].unique()
+            return [455] # Valor predeterminado
+
+        def get_trips_for_vehicle(self, vehicle_id):
+            if 'Vehicle_ID' in self.df and 'Trip_ID' in self.df:
+                return self.df[self.df['Vehicle_ID'] == vehicle_id]['Trip_ID'].unique()
+            return [1197, 1648] # Valores predeterminados
+
+        def get_trip_data(self, vehicle_id, trip_id):
+            if self.df.empty:
+                return pd.DataFrame()
+            
+            trip_df = self.df[
+                (self.df['Vehicle_ID'] == vehicle_id) & 
+                (self.df['Trip_ID'] == trip_id)
+            ].copy()
+            
+            # Asegurar que los datos estén ordenados (simulación, idealmente por timestamp)
+            # Aquí se asume que el CSV ya está ordenado por tiempo para ese viaje
+            return trip_df.reset_index(drop=True)
+
 
 class DashboardApp:
     def __init__(self, data_filepath):
         self.data_handler = DataHandler(data_filepath)
         self.app = dash.Dash(__name__, suppress_callback_exceptions=True)
-        self.app.title = "EV Degradation Simulator"
-        self.trip_color = '#BB86FC'
-        
-        self.dist_points = np.array([0, 70 ,75, 80, 87, 90, 93, 95, 98, 100, 103])
-        self.prob_points = np.array([0, 0, 0.05, 0.15, 0.3, 0.4, 0.55, 0.7, 0.88, 0.96, 0.98])
-
+        self.app.title = "EV Telemetry Dashboard"
+        self.trip_colors = ['#BB86FC', '#03DAC6']
         self.app.layout = self._create_layout()
         self._register_callbacks()
 
     def _create_layout(self):
         all_vehicles = self.data_handler.get_all_vehicles()
+        
         default_vehicle_id = 455
-        default_trip_id = 2323
-        default_trip_options = [{'label': f'Trip {default_trip_id}', 'value': default_trip_id}]
+        default_trip_options = []
+        if default_vehicle_id in all_vehicles:
+            trips = self.data_handler.get_trips_for_vehicle(default_vehicle_id)
+            default_trip_options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
 
-        stores = [
-            dcc.Store(id='simulation-state-store', data={
-                'cycle_count': 0, 
-                'total_distance_offset': 0.0, 
-                'start_interval': 0,
-                'soc_offset': 0.0,
-                'direction': 'forward'
-            })
-        ]
+        stores = [dcc.Store(id='cycle-start-store')]
+        
+        control_slots = []
+        for i in range(1, 3):
+            slot = html.Div(className="selector-slot", children=[
+                html.H3(f"Vehicle {i} Selection", style={'color': self.trip_colors[i-1]}),
+                html.Label("Select Vehicle:"),
+                dcc.Dropdown(
+                    id=f'vehicle-selector-{i}',
+                    options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles],
+                    value=455,
+                    className="vehicle-dropdown"
+                ),
+                html.Label("Select Trip:"),
+                dcc.Dropdown(
+                    id=f'trip-selector-{i}',
+                    options=default_trip_options,
+                    value=1197 if i == 1 else 1648,
+                    className="trip-dropdown"
+                )
+            ])
+            control_slots.append(slot)
 
-        control_panel = html.Div(className="selector-slot", children=[
-            html.H3("Simulation Control"),
-            html.Label("Vehicle:"),
-            dcc.Dropdown(id='vehicle-selector', options=[{'label': f'Vehicle {v}', 'value': v} for v in all_vehicles], value=default_vehicle_id),
-            html.Label("Trip:"),
-            dcc.Dropdown(id='trip-selector', options=default_trip_options, value=default_trip_id)
-        ])
-
-        metrics_sidebar = html.Div(className="metrics-sidebar", children=[
-            html.H3("Live Trip Metrics", style={'color': self.trip_color}),
-            html.Div(className="metric-card", children=[html.H2("Speed"), html.P(id="text-velocidad", children="-- km/h")]),
-            html.Div(className="metric-card", children=[html.H2("State of Charge (SOC)"), html.P(id="text-soc", children="-- %")]),
-            html.H3("Cumulative Simulation", style={'color': '#03DAC6', 'marginTop': '20px'}),
-            html.Div(className="metric-card", children=[html.H2("Cycle Count"), html.P(id="text-cycle-count", children="0")]),
-            html.Div(className="metric-card", children=[html.H2("Total Distance"), html.P(id="text-total-distance", children="0.0 km")]),
-            html.Div(id="mdr-card", className="metric-card", children=[html.H2("MDR (Probability)"), html.P(id="text-mdr", children="0.0 %")]),
-        ])
+        metric_sidebars = []
+        for i in range(1, 3):
+            sidebar = html.Div(className="metrics-sidebar", children=[
+                html.H3(f"Vehicle {i} Live Metrics", style={'color': self.trip_colors[i-1]}),
+                html.Div(className="metric-card", children=[html.H2("Speed"), html.P(id=f"text-velocidad-{i}", children="-- km/h")]),
+                html.Div(className="metric-card", children=[html.H2("State of Charge (SOC)"), html.P(id=f"text-soc-{i}", children="-- %")]),
+                html.Div(className="metric-card", children=[html.H2("Voltage"), html.P(id=f"text-voltaje-{i}", children="-- V")]),
+                html.Div(className="metric-card", children=[html.H2("Instant Power"), html.P(id=f"text-potencia-{i}", children="-- kW")]),
+                html.Div(className="metric-card", children=[html.H2("Accumulated Energy"), html.P(id=f"text-energia-{i}", children="-- kWh")]),
+                html.Div(className="metric-card", children=[html.H2("MDR"), html.P(id=f"text-mdr-{i}", children="--")]),
+                html.Div(className="metric-card", children=[html.H2("Degradation Rate"), html.P(id=f"text-degradation-{i}", children="--")]),
+            ])
+            metric_sidebars.append(sidebar)
 
         return html.Div(className="dashboard-container", children=[
             *stores,
-            dcc.Interval(id='interval-component', interval=50, n_intervals=0),
-            html.Header(className="main-header", children=[html.H1("🛰️EV-Sim Dashboard")]),
-            html.Div(className="control-panel-multi", style={'gridTemplateColumns': '1fr'}, children=[control_panel]),
+            # Se mueve el dcc.Interval aquí para que esté en el layout
+            dcc.Interval(id='interval-component', interval=500, n_intervals=0), 
+            html.Header(className="main-header", children=[html.H1("🛰️ EV-Sim Dashboard")]),
+            html.Div(className="control-panel-multi", children=control_slots),
             html.Main(className="main-content-dual-metrics", children=[
-                metrics_sidebar,
-                html.Div(className="map-container-dual-metrics", children=[dcc.Graph(id='vehicle-map', style={'height': '100%'})]),
+                *metric_sidebars,
+                html.Div(className="map-container-dual-metrics", children=[
+                    dcc.Graph(id='vehicle-map', style={'height': '100%'})
+                ]),
             ])
         ])
 
     def _register_callbacks(self):
+        def create_callback_functions(i):
+            @self.app.callback(
+                Output(f'trip-selector-{i}', 'options'),
+                Input(f'vehicle-selector-{i}', 'value')
+            )
+            def update_trip_options(selected_vehicle):
+                if selected_vehicle is None: return []
+                trips = self.data_handler.get_trips_for_vehicle(selected_vehicle)
+                return [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
+
+        for i in range(1, 3):
+            create_callback_functions(i)
+
         @self.app.callback(
-            Output('trip-selector', 'options'),
-            Output('trip-selector', 'value'),
-            Input('vehicle-selector', 'value'),
-            prevent_initial_call=True
+            Output('cycle-start-store', 'data'),
+            Input('trip-selector-1', 'value'),
+            Input('trip-selector-2', 'value'),
+            State('interval-component', 'n_intervals')
         )
-        def update_trip_options(selected_vehicle):
-            if selected_vehicle is None: 
-                raise PreventUpdate
-            trips = self.data_handler.get_trips_for_vehicle(selected_vehicle)
-            options = [{'label': f'Trip {int(trip)}', 'value': trip} for trip in trips]
-            return options, trips[0] if trips else None
+        def reset_simulation_cycle(trip1, trip2, n_intervals):
+            # Resetea el contador de inicio cada vez que se cambia un viaje
+            return n_intervals
 
         @self.app.callback(
             Output('vehicle-map', 'figure'),
-            Output('simulation-state-store', 'data'),
-            Output('interval-component', 'disabled'),
-            Output('text-velocidad', 'children'),
-            Output('text-soc', 'children'),
-            Output('text-cycle-count', 'children'),
-            Output('text-total-distance', 'children'),
-            Output('text-mdr', 'children'),
+            Output('text-velocidad-1', 'children'), Output('text-soc-1', 'children'), Output('text-voltaje-1', 'children'),
+            Output('text-potencia-1', 'children'), Output('text-energia-1', 'children'), Output('text-degradation-1', 'children'),
+            Output('text-mdr-1', 'children'),
+            Output('text-velocidad-2', 'children'), Output('text-soc-2', 'children'), Output('text-voltaje-2', 'children'),
+            Output('text-potencia-2', 'children'), Output('text-energia-2', 'children'), Output('text-degradation-2', 'children'),
+            Output('text-mdr-2', 'children'),
             Input('interval-component', 'n_intervals'),
-            Input('trip-selector', 'value'),
-            State('vehicle-selector', 'value'),
-            State('simulation-state-store', 'data'),
+            State('vehicle-selector-1', 'value'), State('vehicle-selector-2', 'value'),
+            State('trip-selector-1', 'value'), State('trip-selector-2', 'value'),
+            State('cycle-start-store', 'data'),
         )
-        def unified_simulation_callback(n_intervals, trip_id, vehicle_id, sim_state):
-            ctx = dash.callback_context
-            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else 'initial_load'
-
-            if not vehicle_id or not trip_id:
-                raise PreventUpdate
-
-            if trigger_id == 'trip-selector' or trigger_id == 'initial_load':
-                sim_state = {'cycle_count': 0, 'total_distance_offset': 0.0, 'start_interval': n_intervals, 'soc_offset': 0.0, 'direction': 'forward'}
-
-            trip_df = self.data_handler.get_trip_data(vehicle_id, trip_id)
-            if trip_df.empty: 
-                raise PreventUpdate
-
-            duration = len(trip_df)
-            trip_distance_m = trip_df['Trip_Distance[m]'].iloc[-1] if 'Trip_Distance[m]' in trip_df.columns else 0
-            soc_inicial_viaje = trip_df['HV_Battery_SOC[%]'].iloc[0]
-            soc_final_viaje = trip_df['HV_Battery_SOC[%]'].iloc[-1]
-            soc_consumido_por_viaje = soc_inicial_viaje - soc_final_viaje
+        def update_multi_trip_dashboard(n_intervals, 
+                                        vehicle_id_1, vehicle_id_2,
+                                        trip_id_1, trip_id_2,
+                                        cycle_start_interval):
             
-            elapsed_time = n_intervals - sim_state['start_interval']
+            vehicle_ids = [vehicle_id_1, vehicle_id_2]
+            trip_ids = [trip_id_1, trip_id_2]
             
-            if duration > 0 and elapsed_time >= duration:
-                # --- ACUMULACIÓN CORRECTA: Se actualiza al final de CADA tramo (ida o vuelta) ---
-                sim_state['total_distance_offset'] += (trip_distance_m / 1000.0)
-                sim_state['soc_offset'] += soc_consumido_por_viaje
-                
-                if sim_state['direction'] == 'forward':
-                    sim_state['direction'] = 'backward'
-                else:
-                    sim_state['direction'] = 'forward'
-                    sim_state['cycle_count'] += 1 # Un ciclo se cuenta al completar la vuelta
-                
-                sim_state['start_interval'] = n_intervals
-                elapsed_time = 0
+            fig = go.Figure()
+            
+            fig.update_layout(
+                map_style="open-street-map",
+                map_center=dict(lat=42.2850, lon=-83.7380), # Coordenadas centradas en Ann Arbor
+                map_zoom=11.5,
+                margin={"r":0, "t":0, "l":0, "b":0},
+                showlegend=False
+            )
+            
+            metrics_outputs = ["-- km/h", "-- %", "-- V", "-- kW", "-- kWh", "--", "--"] * 2
+            
+            trip_dfs = [self.data_handler.get_trip_data(vid, tid) for vid, tid in zip(vehicle_ids, trip_ids)]
+            durations = [len(df) for df in trip_dfs]
+            max_duration = max(durations) if any(d for d in durations if d > 0) else 0
 
-            # --- Lógica de Posición (sin cambios) ---
-            if sim_state['direction'] == 'forward':
-                current_index = min(elapsed_time, duration - 1)
+            # ----- INICIO DE LA MODIFICACIÓN (Aceleración) -----
+            TARGET_SIMULATION_SECONDS = 40.0 # 40 segundos
+            # Debe coincidir con dcc.Interval en _create_layout
+            INTERVAL_MS = 500.0 
+            
+            # Total de "ticks" que debe durar la simulación
+            total_ticks_for_sim = (TARGET_SIMULATION_SECONDS * 1000) / INTERVAL_MS
+            
+            # Cuántos puntos de datos saltar en cada "tick"
+            # Usamos max(1, ...) para evitar step_size = 0 si max_duration es muy pequeño
+            step_size = 1 
+            if max_duration > 0 and total_ticks_for_sim > 0:
+                step_size = max(1, int(math.ceil(max_duration / total_ticks_for_sim)))
+
+            if cycle_start_interval is None or max_duration == 0:
+                current_data_index = 0
             else:
-                current_index = max(0, duration - 1 - elapsed_time)
+                elapsed_ticks = n_intervals - cycle_start_interval
+                # Calcular el índice de datos actual basado en los ticks y el step_size
+                current_data_index = (elapsed_ticks * step_size)
             
-            current_data = trip_df.iloc[current_index]
-            
-            # --- CÁLCULO DE MÉTRICAS SIMPLIFICADO Y CORREGIDO ---
-            # El SOC y la Distancia del tramo actual se calculan de forma simétrica
-            if sim_state['direction'] == 'forward':
-                distance_this_leg_km = current_data.get('Trip_Distance[m]', 0) / 1000.0
-                soc_actual = current_data['HV_Battery_SOC[%]'] - sim_state['soc_offset']
-            else: # backward
-                distance_this_leg_km = (trip_distance_m - current_data.get('Trip_Distance[m]', 0)) / 1000.0
-                apparent_soc_regen = current_data['HV_Battery_SOC[%]'] - soc_final_viaje
-                soc_at_turnaround = soc_final_viaje - (sim_state['soc_offset'] - soc_consumido_por_viaje)
-                soc_actual = soc_at_turnaround - apparent_soc_regen
-
-            # El total es siempre el offset + el progreso en el tramo actual
-            distancia_total = sim_state['total_distance_offset'] + distance_this_leg_km
-            # --- FIN DE LA CORRECCIÓN ---
-
-            disable_interval = soc_actual <= 0
-            if soc_actual <= 0: soc_actual = 0
-            
-            path_so_far = trip_df.iloc[:current_index + 1] if sim_state['direction'] == 'forward' else trip_df.iloc[current_index:]
-            
-            velocidad = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
-            soc = f"{soc_actual:.1f} %"
-            ciclos = f"{sim_state['cycle_count']}"
-            total_distance_text = f"{distancia_total:.1f} km"
-            mdr_prob = np.interp(distancia_total, self.dist_points, self.prob_points)
-            mdr_text = f"{mdr_prob * 100:.1f} %"
-            
-            if trigger_id == 'trip-selector' or trigger_id == 'initial_load':
-                fig = go.Figure()
-                fig.add_trace(go.Scattermap(lat=[], lon=[], mode='lines', line=dict(color=self.trip_color, width=3)))
-                fig.add_trace(go.Scattermap(lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']], 
-                                            mode='markers', marker=dict(symbol='car', size=30, color='black')))
-                fig.update_layout(
-                    margin={"r":0, "t":0, "l":0, "b":0}, showlegend=False,
-                    map_style="open-street-map",
-                    map_center=dict(lat=42.2850, lon=-83.7380), map_zoom=12.5
-                )
-                return fig, sim_state, disable_interval, velocidad, soc, ciclos, total_distance_text, mdr_text
+            # Asegurarse de que el ciclo se repita (módulo)
+            if max_duration > 0:
+                current_data_index = current_data_index % max_duration
             else:
-                patched_figure = Patch()
-                patched_figure['data'][0]['lat'] = path_so_far['Latitude[deg]']
-                patched_figure['data'][0]['lon'] = path_so_far['Longitude[deg]']
-                patched_figure['data'][1]['lat'] = [current_data['Latitude[deg]']]
-                patched_figure['data'][1]['lon'] = [current_data['Longitude[deg]']]
-                return patched_figure, sim_state, disable_interval, velocidad, soc, ciclos, total_distance_text, mdr_text
+                current_data_index = 0
+            # ----- FIN DE LA MODIFICACIÓN -----
+
+            for i in range(2):
+                trip_df = trip_dfs[i]
+                duration = durations[i]
+
+                if not trip_df.empty:
+                    # ----- MODIFICACIÓN DE ÍNDICE -----
+                    # Ajustar el índice para el ciclo actual de este viaje específico
+                    # Usamos el nuevo 'current_data_index'
+                    current_index = min(current_data_index, duration - 1) if duration > 0 else 0
+                    # ----- FIN MODIFICACIÓN DE ÍNDICE -----
+                    
+                    if duration == 0:
+                        continue # No hay datos para este viaje
+
+                    current_data = trip_df.iloc[current_index]
+                    path_so_far = trip_df.iloc[:current_index + 1]
+
+                    # ----- INICIO DE LA MODIFICACIÓN -----
+                    # Trazo de la ruta (línea) - Se añade 'below=""'
+                    fig.add_trace(go.Scattermap(
+                        lat=path_so_far['Latitude[deg]'], lon=path_so_far['Longitude[deg]'],
+                        mode='lines', line=dict(color=self.trip_colors[i], width=3),
+                        below='' # Forzar que se dibuje encima de las capas del mapa
+                    ))
+                    # ----- FIN DE LA MODIFICACIÓN -----
+
+
+                    # ----- INICIO DE LA MODIFICACIÓN -----
+                    # Icono de auto - Se vuelve a 'markers' con 'symbol="car"'
+                    # Se añade 'below=""' para forzar que se dibuje encima de todo.
+                    fig.add_trace(go.Scattermap(
+                       lat=[current_data['Latitude[deg]']], lon=[current_data['Longitude[deg]']],
+                       mode='markers',
+                       marker=dict(
+                           size=20,
+                           symbol='car',
+                           color=self.trip_colors[i],
+                           allowoverlap=True # Permitir superposición
+                       ),
+                       below='' # Forzar que se dibuje encima de todo
+                    ))
+                    # ----- FIN DE LA MODIFICACIÓN -----
+
+
+                    metrics_start_index = i * 7
+                    metrics_outputs[metrics_start_index] = f"{current_data['Vehicle_Speed[km/h]']:.1f} km/h"
+                    metrics_outputs[metrics_start_index + 1] = f"{current_data['HV_Battery_SOC[%]']:.1f} %"
+                    metrics_outputs[metrics_start_index + 2] = f"{current_data['HV_Battery_Voltage[V]']:.1f} V"
+                    metrics_outputs[metrics_start_index + 3] = f"{current_data['Power[W]'] / 1000:.2f} kW"
+                    metrics_outputs[metrics_start_index + 4] = f"{current_data['Accum_Energy[kWh]']:.3f} kWh"
+                    # Asumiendo que MDR y Degradation no están en el CSV, se dejan como placeholder
+                    metrics_outputs[metrics_start_index + 5] = "--" # MDR
+                    metrics_outputs[metrics_start_index + 6] = "--" # Degradation
+
+            return [fig] + metrics_outputs
         
-        @self.app.callback(
-            Output('mdr-card', 'className'),
-            Input('text-mdr', 'children')
-        )
-        def update_mdr_card_color(mdr_text):
-            try:
-                prob_value = float(mdr_text.replace(' %', ''))
-            except (ValueError, TypeError):
-                return "metric-card"
-            
-            if prob_value > 40:
-                return "metric-card mdr-red"
-            elif prob_value > 20:
-                return "metric-card mdr-yellow"
-            else:
-                return "metric-card mdr-green"
-            
     def run(self, debug=True, port=8051):
         self.app.run(debug=debug, port=port)
 
